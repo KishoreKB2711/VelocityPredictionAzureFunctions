@@ -24,7 +24,7 @@ def read_model_from_datalake(blobname):
     # blob_client_instance.upload_blob(data=df.to_json(orient='records'))
     in_file = blob_client_instance.download_blob()
 
-    return pd.read_json(in_file, orient="records") # type: ignore
+    return pd.read_json(in_file) # type: ignore
 
 
 def write_file_to_datalake(blobname, df):
@@ -75,7 +75,8 @@ def main(event: func.EventGridEvent):
 
     model = read_picklefile_from_datalake('Models/Clustering/all_cluster_classification_model.pkl')
     scalar = read_picklefile_from_datalake('Scalars/Clustering/all_cluster_classification_scalar.pkl')
-    in_df = pd.DataFrame(event.get_json())
+
+    in_df = read_model_from_datalake(event.get_json()['BLOBNAME'])
 
     prediction = model.predict(pd.DataFrame(scalar.transform(in_df[['GR', 'NPHI', 'RHOB', 'RSHALLOW']]), columns=['GR', 'NPHI', 'RHOB', 'RSHALLOW']))
 
