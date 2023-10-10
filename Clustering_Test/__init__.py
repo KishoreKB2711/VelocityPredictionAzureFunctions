@@ -65,14 +65,7 @@ def read_picklefile_from_datalake(blobname):
 
 
 def main(event: func.EventGridEvent):
-    result = json.dumps({
-        'id': event.id,
-        'data': event.get_json(),
-        'topic': event.topic,
-        'subject': event.subject,
-        'event_type': event.event_type,
-    })
-
+    
     model = read_picklefile_from_datalake('Models/Clustering/all_cluster_classification_model.pkl')
     scalar = read_picklefile_from_datalake('Scalars/Clustering/all_cluster_classification_scalar.pkl')
 
@@ -82,7 +75,5 @@ def main(event: func.EventGridEvent):
 
     in_df['Cluster_No'] = prediction
 
-    write_file_to_datalake("Results/Clustering_Test.json", in_df)
-
-
-    logging.info('Python EventGrid trigger processed an event: %s', result)
+    # write_file_to_datalake(f"Results/{event.get_json()['Company']}_{event.get_json()['Well_Name']}_{event.get_json()['API']}.json", in_df)
+    write_file_to_datalake(f"Results/clustering_result.json", in_df)
