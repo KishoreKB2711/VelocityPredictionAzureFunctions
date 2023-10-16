@@ -11,7 +11,6 @@ import sklearn
 import tensorflow as tf
 from tensorflow import keras
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.cluster import KMeans
 from sklearn.neighbors import KNeighborsClassifier
 
 def List_blob_contents(name_start_with=None):
@@ -100,30 +99,37 @@ def read_picklefile_from_datalake(blobname):
 
 
 def main(event: func.EventGridEvent):
-    result = json.dumps({
-        'id': event.id,
-        'data': event.get_json(),
-        'topic': event.topic,
-        'subject': event.subject,
-        'event_type': event.event_type,
-    })
+    logging.info('Prediction Test Function was triggered')
+
+    logging.info('Loading Models list ....')
+
 
     model_list = List_blob_contents('Models/Test Model')
     scalar_list = List_blob_contents('Scalars/Test_Model')
     classification_list = List_blob_contents('Models/Classification')
 
+    logging.info('Models list loaded')
+
+
     model = {}
     scalar = {}
+    logging.info('Loading input config')
+
     scalar_input_config = read_json_from_datalake("Config_files/scalar_input_config.json")
+
+    logging.info('Loading models')
+
 
     for model_name in model_list:
         if '.pkl' in model_name.name:
             model[model_name.name.split('/')[-1].replace(".pkl", "")] = read_picklefile_from_datalake(model_name.name)
     
+    logging.info('Loading scalars')
     for scalar_name in scalar_list:
         if '.pkl' in scalar_name.name:
             scalar[scalar_name.name.split('/')[-1].replace(".pkl", "")] = read_picklefile_from_datalake(scalar_name.name)
 
+    logging.info('Loading Classification models')
     for cl_model_name in classification_list:
         if '.pkl' in cl_model_name.name:
             model[cl_model_name.name.split('/')[-1].replace(".pkl", "")] = read_picklefile_from_datalake(cl_model_name.name)
@@ -131,6 +137,7 @@ def main(event: func.EventGridEvent):
     # model = read_picklefile_from_datalake('Models/Clustering/all_cluster_classification_model.pkl')
     # scalar = read_picklefile_from_datalake('Scalars/Clustering/all_cluster_classification_scalar.pkl')
 
+    logging.info('Getting DataFrame')
     in_df = read_dataframe_from_datalake(event.get_json()['BLOBNAME'])
     test_final_df_complete = in_df.drop(columns=['DEPTH'])
 
@@ -149,6 +156,7 @@ def main(event: func.EventGridEvent):
 
 
     #### Getting ClusterDetails
+    logging.info('Assigning clusters')
     scaled_cluster_df = pd.DataFrame(scalar['Classifcation_scaler'].transform(test_final_df_complete[['GR', 'NPHI', 'RHOB', 'RSHALLOW']]), columns=['GR', 'NPHI', 'RHOB', 'RSHALLOW'])
     test_final_df_complete['GR_VP_Cluster'] = model['gr_vp_cluster_classification_model'].predict(scaled_cluster_df)
     test_final_df_complete['NPHI_VP_Cluster'] = model['nphi_vp_cluster_classification_model'].predict(scaled_cluster_df)
@@ -179,6 +187,8 @@ def main(event: func.EventGridEvent):
 
     clusters = test_final_df_complete.filter(like='_Cluster').columns.tolist()
 
+    logging.info('Starting Predictions')
+    logging.info('VP Predictions')
     for cluster in clusters:
         groups = test_final_df_complete.groupby(cluster)   
 
@@ -187,6 +197,7 @@ def main(event: func.EventGridEvent):
     #### Predicting Vs for individual cluster
     prediction = {}
 
+    logging.info('VS Predictions')
     for cluster in clusters:
         groups = test_final_df_complete.groupby(cluster)   
         
@@ -201,11 +212,13 @@ def main(event: func.EventGridEvent):
     # test_final_df_complete = test_final_df_complete.drop(columns=['DEPTH'])
     # test_final_df_complete.head()
     
+    logging.info('Final Predictions')
     final_vp_complete_prediction = model['final_Vp_complete_model'].predict(pd.DataFrame(scalar['final_Vp_complete_scaler'].transform(test_final_df_complete[scalar_input_config['final_Vp_complete_scaler']]), columns=scalar_input_config['final_Vp_complete_scaler']))
     final_vs_complete_prediction = model['final_Vs_complete_model'].predict(pd.DataFrame(scalar['final_Vs_complete_scaler'].transform(test_final_df_complete[scalar_input_config['final_Vs_complete_scaler']]), columns=scalar_input_config['final_Vs_complete_scaler']))
     in_df['VP_complete_Predicted'] = final_vp_complete_prediction
     in_df['VS_complete_Predicted'] = final_vs_complete_prediction
 
+    logging.info('Cluster Predictions')
     clustering_model = read_picklefile_from_datalake('Models/Clustering/all_cluster_classification_model.pkl')
     clustering_scalar = read_picklefile_from_datalake('Scalars/Clustering/all_cluster_classification_scalar.pkl')
 
@@ -213,7 +226,7 @@ def main(event: func.EventGridEvent):
 
     in_df['Cluster_No'] = prediction
 
+    logging.info('Writing to results Predictions')
     write_file_to_datalake(f"Results/prediction_result.json", in_df)
 
-    # write_file_to_datalake(f"Results/clustering_result.json", in_df)
-    logging.info('Python EventGrid trigger processed an event: %s', result)
+    logging.info('Success')
