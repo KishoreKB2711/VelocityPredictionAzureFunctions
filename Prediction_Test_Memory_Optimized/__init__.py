@@ -134,25 +134,9 @@ def main(event: func.EventGridEvent):
         if '.pkl' in cl_model_name.name:
             model[cl_model_name.name.split('/')[-1].replace(".pkl", "")] = read_picklefile_from_datalake(cl_model_name.name)
 
-    # model = read_picklefile_from_datalake('Models/Clustering/all_cluster_classification_model.pkl')
-    # scalar = read_picklefile_from_datalake('Scalars/Clustering/all_cluster_classification_scalar.pkl')
-
     logging.info('Getting DataFrame')
     in_df = read_dataframe_from_datalake(event.get_json()['BLOBNAME'])
     test_final_df_complete = in_df.drop(columns=['DEPTH'])
-
-    # prediction = model.predict(pd.DataFrame(scalar.transform(in_df[['GR', 'NPHI', 'RHOB', 'RSHALLOW']]), columns=['GR', 'NPHI', 'RHOB', 'RSHALLOW']))
-    # in_df['Cluster_No'] = prediction
-
-
-
-    ### Test
-    #### Importing Test Data
-    # test_final_df = pd.read_json("Data/tcom_final_test_data.json")
-    # test_final_df.to_csv("Data/tcom_final_test_data_records.csv", index=False)
-    # test_final_df_Vp = test_final_df.drop(columns=['RDEEP', 'VS'])
-    # test_final_df_Vs = test_final_df.drop(columns=['RDEEP', 'VP'])
-    # test_final_df_complete = test_final_df.drop(columns=['RDEEP', 'VP', 'VS'])
 
 
     #### Getting ClusterDetails
@@ -166,25 +150,8 @@ def main(event: func.EventGridEvent):
     test_final_df_complete['NPHI_VS_Cluster'] = model['nphi_vs_cluster_classification_model'].predict(scaled_cluster_df)
     test_final_df_complete['RHOB_VS_Cluster'] = model['rhob_vs_cluster_classification_model'].predict(scaled_cluster_df)
     test_final_df_complete['RSHALLOW_VS_Cluster'] = model['rshallow_vs_cluster_classification_model'].predict(scaled_cluster_df)
-    # test_final_df_Vp['GR_VP_Cluster'] = gr_vp_cluster_classification_model.predict(scaled_cluster_df)
-    # test_final_df_Vp['NPHI_VP_Cluster'] = nphi_vp_cluster_classification_model.predict(scaled_cluster_df)
-    # test_final_df_Vp['RHOB_VP_Cluster'] = rhob_vp_cluster_classification_model.predict(scaled_cluster_df)
-    # test_final_df_Vp['RSHALLOW_VP_Cluster'] = rshallow_vp_cluster_classification_model.predict(scaled_cluster_df)
-    # test_final_df_Vp['GR_VS_Cluster'] = gr_vs_cluster_classification_model.predict(scaled_cluster_df)
-    # test_final_df_Vp['NPHI_VS_Cluster'] = nphi_vs_cluster_classification_model.predict(scaled_cluster_df)
-    # test_final_df_Vp['RHOB_VS_Cluster'] = rhob_vs_cluster_classification_model.predict(scaled_cluster_df)
-    # test_final_df_Vp['RSHALLOW_VS_Cluster'] = rshallow_vs_cluster_classification_model.predict(scaled_cluster_df)
-    # test_final_df_Vs['GR_VP_Cluster'] = gr_vp_cluster_classification_model.predict(scaled_cluster_df)
-    # test_final_df_Vs['NPHI_VP_Cluster'] = nphi_vp_cluster_classification_model.predict(scaled_cluster_df)
-    # test_final_df_Vs['RHOB_VP_Cluster'] = rhob_vp_cluster_classification_model.predict(scaled_cluster_df)
-    # test_final_df_Vs['RSHALLOW_VP_Cluster'] = rshallow_vp_cluster_classification_model.predict(scaled_cluster_df)
-    # test_final_df_Vs['GR_VS_Cluster'] = gr_vs_cluster_classification_model.predict(scaled_cluster_df)
-    # test_final_df_Vs['NPHI_VS_Cluster'] = nphi_vs_cluster_classification_model.predict(scaled_cluster_df)
-    # test_final_df_Vs['RHOB_VS_Cluster'] = rhob_vs_cluster_classification_model.predict(scaled_cluster_df)
-    # test_final_df_Vs['RSHALLOW_VS_Cluster'] = rshallow_vs_cluster_classification_model.predict(scaled_cluster_df)
-    # #### Predicting Vp for individual cluster
-    # prediction = {}
 
+    #### Predicting Vp for individual cluster
     clusters = test_final_df_complete.filter(like='_Cluster').columns.tolist()
 
     logging.info('Starting Predictions')
@@ -194,8 +161,8 @@ def main(event: func.EventGridEvent):
 
         for name, group in groups:
             test_final_df_complete[f'{cluster}_{name}_VP'] = model['models_vp'][cluster][name-1].predict(pd.DataFrame(scalar['scaler_Vp'][cluster][name-1].transform(test_final_df_complete[['GR', 'NPHI', 'RHOB', 'RSHALLOW']]), columns=['GR', 'NPHI', 'RHOB', 'RSHALLOW']))
+    
     #### Predicting Vs for individual cluster
-    prediction = {}
 
     logging.info('VS Predictions')
     for cluster in clusters:
@@ -227,6 +194,6 @@ def main(event: func.EventGridEvent):
     in_df['Cluster_No'] = prediction
 
     logging.info('Writing to results Predictions')
-    write_file_to_datalake(f"Results/{event.get_json()['Well_Name']}.json", in_df)
+    write_file_to_datalake(f"Results/prediction_result.json", in_df)
 
     logging.info('Success')
