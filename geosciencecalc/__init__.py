@@ -1,5 +1,6 @@
 import logging
 import math
+import json 
 
 import azure.functions as func
 from azure.storage.blob import BlobServiceClient
@@ -44,15 +45,29 @@ def write_file_to_datalake(blobname, df):
 def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Python HTTP trigger function processed a request.')
 
+    geo_config={}
     name = req.params.get('name')
     well_name = req.form['well_name']
     model_name = req.form['model_name']
 
     input_df = read_dataframe_from_datalake(blobname=f"Results/{well_name}/{well_name}_{model_name}.json")
 
-    input_df['Vp_45'] = input_df.apply(lambda x: (0.8621) * x[f'VP_{model_name}'] + 2688.6, axis=1)
-    input_df['Vp_90'] = input_df.apply(lambda x: (0.6122) * x[f'VP_{model_name}'] + 7471.6, axis=1)
-    input_df['Vs_90'] = input_df.apply(lambda x: (0.4158) * x[f'VS_{model_name}'] + 6118, axis=1)
+    if req.form['model'] == 'pangea':
+        geo_config = read_dataframe_from_datalake('Config_files/geo_config.json').to_dict()
+    elif req.form['model'] == 'usersingle':
+        geo_config = json.loads(req.form['config'])
+    else:
+        geo_config = read_dataframe_from_datalake('Config_files/geo_config.json').to_dict()
+
+
+    ######################################################################################################
+    # Variable Inputs
+    ######################################################################################################
+    input_df['Vp_45'] = input_df.apply(lambda x: (geo_config['Vp45']['M']) * x[f'VP_{model_name}'] + geo_config['Vp45']['C'], axis=1)
+    input_df['Vp_90'] = input_df.apply(lambda x: (geo_config['Vp90']['M']) * x[f'VP_{model_name}'] + geo_config['Vp90']['C'], axis=1)
+    input_df['Vs_90'] = input_df.apply(lambda x: (geo_config['Vs90']['M']) * x[f'VS_{model_name}'] + geo_config['Vs90']['C'], axis=1)
+
+    ######################################################################################################
 
     input_df['Vp_45_GPa'] = input_df.apply(lambda x: (((x['RHOB'] * x['Vp_45'] * x['Vp_45'] * 12 * 12 * 2.54 * 2.54) / 1000000) / 68900) * 6.894 , axis=1)
     input_df['Vp_45_Sq_GPa'] = input_df.apply(lambda x: x['Vp_45_GPa'] * x['Vp_45_GPa'] , axis=1)
@@ -71,11 +86,15 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     input_df['PRdva'] = input_df.apply(lambda x: x['S13'] / (x['S11'] + x['S12']), axis=1)
     input_df['PRdha'] = input_df.apply(lambda x:(((x['S33'] * x['S12']) - (x['S13'] * x['S13'])) / ((x['S33'] * x['S11']) - (x['S13'] * x['S13']))), axis=1)
 
-    input_df['Esv'] = input_df.apply(lambda x:(0.8019 * x['Edva']) - 1.6472, axis=1)
-    input_df['Esh'] = input_df.apply(lambda x:(0.9833 * x['Edha']) - 2.3374, axis=1)
+    ######################################################################################################
+    # Variable Inputs
+    ######################################################################################################
+    input_df['Esv'] = input_df.apply(lambda x:(geo_config['Esv']['M'] * x['Edva']) - geo_config['Esv']['C'], axis=1)
+    input_df['Esh'] = input_df.apply(lambda x:(geo_config['Esh']['M'] * x['Edha']) - geo_config['Esh']['C'], axis=1)
 
-    input_df['PRsv'] = input_df.apply(lambda x:(0.5404 * x['PRdva']) + 0.1306, axis=1)
-    input_df['PRsh'] = input_df.apply(lambda x:(1.0476 * x['PRdha']) - 0.05, axis=1)
+    input_df['PRsv'] = input_df.apply(lambda x:(geo_config['PRsv']['M'] * x['PRdva']) + geo_config['PRsv']['C'], axis=1)
+    input_df['PRsh'] = input_df.apply(lambda x:(geo_config['PRsh']['M'] * x['PRdha']) - geo_config['PRsh']['C'], axis=1)
+    ######################################################################################################
 
     input_df['Esv_GPa'] = input_df.apply(lambda x: x['Esv'] / 0.147, axis=1)
     input_df['Esh_GPa'] = input_df.apply(lambda x: x['Esh'] / 0.147, axis=1)
