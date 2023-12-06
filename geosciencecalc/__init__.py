@@ -122,8 +122,14 @@ def calculate_linear(tops_config, tops, col, x ):
 
 
 
-def CalculateRamp(in_df, col, depth1, depth2):
-    return None
+def CalculateRamp(val1, val2, depth1, depth2, depth):
+    if val1 == val2:
+        return val1
+    
+    if depth1 == depth2:
+        return val1
+    
+    return val1 + ((val2 - val1) * (depth1-depth) / (depth1 - depth2))
  
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
@@ -372,14 +378,6 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             pressure_config = read_dataframe_from_datalake('Config_files/pressure_config.json', False)
 
             try:
-                ramp_data = json.loads(req.form['ramp_data'])
-                for ramp in ramp_data:
-                    CalculateRamp(in_df, 'Vp_NCT', ramp[0], ramp[1])
-            except:
-                print("No Ramp")
-
-
-            try:
                 input_df['Vp_NCT'] = input_df.apply(lambda x: (float(pressure_config[x['Tops']]) * x['VP']) if x['Tops'] != '0' else None, axis=1)
             except:
                 if len(tops_list) <= 2:
@@ -396,11 +394,37 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 input_df['Pp'] = input_df.apply(lambda x: x['Sv'] - ((x['Sv'] - (x['V_Biot'] * 0.43 * x['DEPTH'])) * ((x['VP'] / x['Vp_NCT']) ** 3)), axis=1)
                 input_df['PpG'] = input_df.apply(lambda x: x['Pp'] / x['DEPTH'] if x['DEPTH'] != 0 else 0, axis=1)
 
+            try:
+                ramp_data = json.loads(req.form['ramp_data'])
+                for ramp in ramp_data:
+                    depth1 = input_df[input_df['DEPTH'] == float(ramp_data[ramp][0])]
+                    depth2 = input_df[input_df['DEPTH'] == float(ramp_data[ramp][1])]
+
+                    input_df['PpG'] = input_df.apply(lambda x: CalculateRamp(depth1['PpG'].values[0], depth2['PpG'].values[0], depth1['DEPTH'].values[0], depth2['DEPTH'].values[0], x['DEPTH']) if (depth1['DEPTH'].values[0] <= x['DEPTH'] <= depth2['DEPTH'].values[0]) or (depth2['DEPTH'].values[0] <= x['DEPTH'] <= depth1['DEPTH'].values[0]) else x['PpG'], axis=1)
+                        
+            except:
+                k = "No Ramp"
+
+            try:
+                input_df['Pp'] = input_df.apply(lambda x: x['PpG'] * x['TVD'], axis=1)
+            except:
+                input_df['Pp'] = input_df.apply(lambda x: x['PpG'] * x['DEPTH'], axis=1)
 
         elif req.form['pressure_model'] == 'usval_pressure_bool':
             pressure_config = json.loads(req.form['pressure_data'])
 
             input_df['PpG'] = input_df.apply(lambda x: float(pressure_config[x['Tops']]) if x['Tops'] != '0' else None, axis=1)
+
+            try:
+                ramp_data = json.loads(req.form['ramp_data'])
+                for ramp in ramp_data:
+                    depth1 = input_df[input_df['DEPTH'] == float(ramp_data[ramp][0])]
+                    depth2 = input_df[input_df['DEPTH'] == float(ramp_data[ramp][1])]
+
+                    input_df['PpG'] = input_df.apply(lambda x: CalculateRamp(depth1['PpG'].values[0], depth2['PpG'].values[0], depth1['DEPTH'].values[0], depth2['DEPTH'].values[0], x['DEPTH']) if (depth1['DEPTH'].values[0] <= x['DEPTH'] <= depth2['DEPTH'].values[0]) or (depth2['DEPTH'].values[0] <= x['DEPTH'] <= depth1['DEPTH'].values[0]) else x['PpG'], axis=1)
+                        
+            except:
+                k = "No Ramp"
 
             try:
                 input_df['Pp'] = input_df.apply(lambda x: x['PpG'] * x['TVD'], axis=1)
@@ -433,6 +457,24 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 input_df['PpG'] = input_df.apply(lambda x: x['Pp'] / x['DEPTH'] if x['DEPTH'] != 0 else 0, axis=1)
         
             in_df =  in_df.drop(columns=['CC', 'EC'], errors='ignore')
+
+
+            try:
+                ramp_data = json.loads(req.form['ramp_data'])
+                for ramp in ramp_data:
+                    depth1 = input_df[input_df['DEPTH'] == float(ramp_data[ramp][0])]
+                    depth2 = input_df[input_df['DEPTH'] == float(ramp_data[ramp][1])]
+
+                    input_df['PpG'] = input_df.apply(lambda x: CalculateRamp(depth1['PpG'].values[0], depth2['PpG'].values[0], depth1['DEPTH'].values[0], depth2['DEPTH'].values[0], x['DEPTH']) if (depth1['DEPTH'].values[0] <= x['DEPTH'] <= depth2['DEPTH'].values[0]) or (depth2['DEPTH'].values[0] <= x['DEPTH'] <= depth1['DEPTH'].values[0]) else x['PpG'], axis=1)
+                        
+            except:
+                k = "No Ramp"
+
+            try:
+                input_df['Pp'] = input_df.apply(lambda x: x['PpG'] * x['TVD'], axis=1)
+            except:
+                input_df['Pp'] = input_df.apply(lambda x: x['PpG'] * x['DEPTH'], axis=1)
+                
     except:
         write_file_to_datalake(f"Geo_Mech_Projects/Pangea/{project_val}/{well_val}.json", input_df)
         return func.HttpResponse("Completed till OverBurden", status_code=201)
