@@ -11,7 +11,7 @@ import numpy as np
 ########################
 #Read from ADLS
 #######################
-def read_dataframe_from_datalake(blobname):
+def read_dataframe_from_datalake(blobname, flag = True):
     STORAGEACCOUNTURL = "https://adlszeus.blob.core.windows.net"
     STORAGEACCOUNTKEY = "ksL9a2OZFCiKFYPn6hzTNJcY4WI2Nq2xSsRlUD8cDH3dBBEvePAhJqErSP6QKN27so/2ayW3DnO7O8s4uPtUZA=="
     CONTAINERNAME = "pangea-velocity-app"
@@ -25,8 +25,11 @@ def read_dataframe_from_datalake(blobname):
     # blob_client_instance.upload_blob(data=df.to_json(orient='records'))
     in_file = blob_client_instance.download_blob()
 
-    return pd.read_json(in_file) # type: ignore
-
+    if flag:
+        return pd.read_json(in_file) # type: ignore
+    else:
+        return json.loads(in_file._current_content)
+    
 ########################
 #Write to ADLS
 #######################
@@ -79,8 +82,8 @@ def dataprep(in_df, borehole_bool, min_vp_vs, max_vp_vs, caliper_bitsize):
 
     # Vs from GR: 0.1771*(GR)^2 - 45.154*(GR)^1 + 9367.8-300
 
-    in_df['VP'] = in_df.apply(lambda row: ((0.3422 * (row['GR'] ** 2)) - (124.91 * row['GR']) + 22383) if row['final_bool'] == True else row['VP'], axis=1)
-    in_df['VS'] = in_df.apply(lambda row: ((0.1771 * (row['GR'] ** 2)) - (45.154 * row['GR']) + 9367.8 - 300) if row['final_bool'] == True else row['VS'], axis=1)
+    in_df['VP'] = in_df.apply(lambda row: ((0.3422 * (row['GR'] ** 2)) - (124.91 * row['GR']) + 22383) if row['final_bool'] == False else row['VP'], axis=1)
+    in_df['VS'] = in_df.apply(lambda row: ((0.1771 * (row['GR'] ** 2)) - (45.154 * row['GR']) + 9367.8 - 300) if row['final_bool'] == False else row['VS'], axis=1)
 
     in_df =  in_df.drop(columns=['vp_vs', 'caliper_bitsize', 'vp_vs_bool', 'caliper_bitsize_bool', 'final_bool'], errors='ignore')
     
@@ -117,6 +120,11 @@ def calculate_linear(tops_config, tops, col, x ):
     
     return tops_config[tops]['config'][col]['M'] * x + tops_config[tops]['config'][col]['C']
 
+
+
+def CalculateRamp(in_df, col, depth1, depth2):
+    return None
+ 
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Python HTTP trigger function processed a request.')
@@ -182,7 +190,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     except:
         return func.HttpResponse(f"Missing Tops", status_code=204)
 
-    input_df['tops'] = assign_tops(tops_df, input_df)
+    input_df['Tops'] = assign_tops(tops_df, input_df)
 
 
 
@@ -200,7 +208,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         except:
             return func.HttpResponse(f"Missing Values", status_code=204)
 
-        # temp = input_df.apply(lambda x: calculate_linear(geo_config, x['tops'], 'Vp45', x['VP']), axis=1)
+        # temp = input_df.apply(lambda x: calculate_linear(geo_config, x['Tops'], 'Vp45', x['VP']), axis=1)
 
         
         ######################################################################################################
@@ -210,9 +218,9 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # input_df['Vp_90'] = input_df.apply(lambda x: (geo_config['Vp90']['M']) * x['VP'] + geo_config['Vp90']['C'], axis=1)
         # input_df['Vs_90'] = input_df.apply(lambda x: (geo_config['Vs90']['M']) * x['VS'] + geo_config['Vs90']['C'], axis=1)
 
-        input_df['Vp_45'] = input_df.apply(lambda x: calculate_linear(geo_config, x['tops'], 'Vp45', x['VP']), axis=1)
-        input_df['Vp_90'] = input_df.apply(lambda x: calculate_linear(geo_config, x['tops'], 'Vp90', x['VP']), axis=1)
-        input_df['Vs_90'] = input_df.apply(lambda x: calculate_linear(geo_config, x['tops'], 'Vs90', x['VS']), axis=1)
+        input_df['Vp_45'] = input_df.apply(lambda x: calculate_linear(geo_config, x['Tops'], 'Vp45', x['VP']), axis=1)
+        input_df['Vp_90'] = input_df.apply(lambda x: calculate_linear(geo_config, x['Tops'], 'Vp90', x['VP']), axis=1)
+        input_df['Vs_90'] = input_df.apply(lambda x: calculate_linear(geo_config, x['Tops'], 'Vs90', x['VS']), axis=1)
 
         ######################################################################################################
 
@@ -243,11 +251,11 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         # input_df['PRsh'] = input_df.apply(lambda x:(geo_config['PRsh']['M'] * x['PRdha']) - geo_config['PRsh']['C'], axis=1)
 
 
-        input_df['Esv'] = input_df.apply(lambda x: calculate_linear(geo_config, x['tops'], 'Esv', x['Edva']), axis=1)
-        input_df['Esh'] = input_df.apply(lambda x: calculate_linear(geo_config, x['tops'], 'Esh', x['Edha']), axis=1)
+        input_df['Esv'] = input_df.apply(lambda x: calculate_linear(geo_config, x['Tops'], 'Esv', x['Edva']), axis=1)
+        input_df['Esh'] = input_df.apply(lambda x: calculate_linear(geo_config, x['Tops'], 'Esh', x['Edha']), axis=1)
 
-        input_df['PRsv'] = input_df.apply(lambda x: calculate_linear(geo_config, x['tops'], 'PRsv', x['PRdva']), axis=1)
-        input_df['PRsh'] = input_df.apply(lambda x: calculate_linear(geo_config, x['tops'], 'PRsh', x['PRdha']), axis=1)
+        input_df['PRsv'] = input_df.apply(lambda x: calculate_linear(geo_config, x['Tops'], 'PRsv', x['PRdva']), axis=1)
+        input_df['PRsh'] = input_df.apply(lambda x: calculate_linear(geo_config, x['Tops'], 'PRsh', x['PRdha']), axis=1)
         ######################################################################################################
 
         input_df['Esv_GPa'] = input_df.apply(lambda x: x['Esv'] / 0.147, axis=1)
@@ -351,13 +359,6 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 input_df['Sv'] = input_df.apply(lambda x: float(req.form['overburden_val']) * x['TVD'], axis=1)
             except:
                 input_df['Sv'] = input_df.apply(lambda x: float(req.form['overburden_val']) * x['DEPTH'], axis=1)
-        
-        if len(tops_list) <= 2:
-            input_df['Vp_NCT'] = input_df.apply(lambda x: 1.025 * x['VP'], axis=1)
-        elif len(tops_list) >= 5:
-            input_df['Vp_NCT'] = input_df.apply(lambda x: 1.1 * x['VP'], axis=1)
-        else:
-            input_df['Vp_NCT'] = input_df.apply(lambda x: 1.075 * x['VP'], axis=1)
 
 
     except:
@@ -366,16 +367,87 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     ##########################
     # Pore Pressure
     #########################
-
-    # Pp_1=Sv-(Sv- V_Biot *0.43*Ovbn_Z)*Pow(Vp_M/Vp_NCT,3) 
-
-    # PpG_1=Pp_1/Ovbn_Z 
     try:
-        input_df['Pp'] = input_df.apply(lambda x: x['Sv'] - ((x['Sv'] - (x['V_Biot'] * 0.43 * x['TVD'])) * ((x['VP'] / x['Vp_NCT']) ** 3)), axis=1)
-        input_df['PpG'] = input_df.apply(lambda x: x['Pp'] / x['TVD'], axis=1)
+        if req.form['pressure_model'] == 'pangea_pressure_bool':
+            pressure_config = read_dataframe_from_datalake('Config_files/pressure_config.json', False)
+
+            try:
+                ramp_data = json.loads(req.form['ramp_data'])
+                for ramp in ramp_data:
+                    CalculateRamp(in_df, 'Vp_NCT', ramp[0], ramp[1])
+            except:
+                print("No Ramp")
+
+
+            try:
+                input_df['Vp_NCT'] = input_df.apply(lambda x: (float(pressure_config[x['Tops']]) * x['VP']) if x['Tops'] != '0' else None, axis=1)
+            except:
+                if len(tops_list) <= 2:
+                    input_df['Vp_NCT'] = input_df.apply(lambda x: 1.025 * x['VP'], axis=1)
+                elif len(tops_list) >= 5:
+                    input_df['Vp_NCT'] = input_df.apply(lambda x: 1.1 * x['VP'], axis=1)
+                else:
+                    input_df['Vp_NCT'] = input_df.apply(lambda x: 1.075 * x['VP'], axis=1)
+
+            try:
+                input_df['Pp'] = input_df.apply(lambda x: x['Sv'] - ((x['Sv'] - (x['V_Biot'] * 0.43 * x['TVD'])) * ((x['VP'] / x['Vp_NCT']) ** 3)), axis=1)
+                input_df['PpG'] = input_df.apply(lambda x: x['Pp'] / x['TVD'], axis=1)
+            except:
+                input_df['Pp'] = input_df.apply(lambda x: x['Sv'] - ((x['Sv'] - (x['V_Biot'] * 0.43 * x['DEPTH'])) * ((x['VP'] / x['Vp_NCT']) ** 3)), axis=1)
+                input_df['PpG'] = input_df.apply(lambda x: x['Pp'] / x['DEPTH'] if x['DEPTH'] != 0 else 0, axis=1)
+
+
+        elif req.form['pressure_model'] == 'usval_pressure_bool':
+            pressure_config = json.loads(req.form['pressure_data'])
+
+            input_df['PpG'] = input_df.apply(lambda x: float(pressure_config[x['Tops']]) if x['Tops'] != '0' else None, axis=1)
+
+            try:
+                input_df['Pp'] = input_df.apply(lambda x: x['PpG'] * x['TVD'], axis=1)
+            except:
+                input_df['Pp'] = input_df.apply(lambda x: x['PpG'] * x['DEPTH'], axis=1)
+
+
+            # input_df['Vp_NCT'] = input_df.apply(lambda x: (float(pressure_config[x['Tops']]) * x['VP']) if x['Tops'] != '0' else None, axis=1)
+
+            # try:
+            #     input_df['Pp'] = input_df.apply(lambda x: x['Sv'] - ((x['Sv'] - (x['V_Biot'] * 0.43 * x['TVD'])) * ((x['VP'] / x['Vp_NCT']) ** 3)), axis=1)
+            #     input_df['PpG'] = input_df.apply(lambda x: x['Pp'] / x['TVD'], axis=1)
+            # except:
+            #     input_df['Pp'] = input_df.apply(lambda x: x['Sv'] - ((x['Sv'] - (x['V_Biot'] * 0.43 * x['DEPTH'])) * ((x['VP'] / x['Vp_NCT']) ** 3)), axis=1)
+            #     input_df['PpG'] = input_df.apply(lambda x: x['Pp'] / x['DEPTH'] if x['DEPTH'] != 0 else 0, axis=1)
+
+        elif req.form['pressure_model'] == 'usmodel_pressure_bool':
+            pressure_config = json.loads(req.form['pressure_data'])
+
+            input_df['Vp_NCT'] = input_df.apply(lambda x: float(pressure_config[x['Tops']]['Vp_NCT']) if x['Tops'] != '0' else 0.0, axis=1)
+
+            input_df['CC'] = input_df.apply(lambda x: (float(pressure_config[x['Tops']]['Compressibility Constant'])) if x['Tops'] != '0' else 0.0, axis=1)
+            input_df['EC'] = input_df.apply(lambda x: (float(pressure_config[x['Tops']]['Exponential Constant'])) if x['Tops'] != '0' else 0.0, axis=1)
+
+            try:
+                input_df['Pp'] = input_df.apply(lambda x: x['Sv'] - ((x['Sv'] - (x['CC'] * 0.43 * x['TVD'])) * ((x['EC']) ** 3)), axis=1)
+                input_df['PpG'] = input_df.apply(lambda x: x['Pp'] / x['TVD'], axis=1)
+            except:
+                input_df['Pp'] = input_df.apply(lambda x: x['Sv'] - ((x['Sv'] - (x['CC'] * 0.43 * x['DEPTH'])) * ((x['EC']) ** 3)), axis=1)
+                input_df['PpG'] = input_df.apply(lambda x: x['Pp'] / x['DEPTH'] if x['DEPTH'] != 0 else 0, axis=1)
+        
+            in_df =  in_df.drop(columns=['CC', 'EC'], errors='ignore')
     except:
-        input_df['Pp'] = input_df.apply(lambda x: x['Sv'] - ((x['Sv'] - (x['V_Biot'] * 0.43 * x['DEPTH'])) * ((x['VP'] / x['Vp_NCT']) ** 3)), axis=1)
-        input_df['PpG'] = input_df.apply(lambda x: x['Pp'] / x['DEPTH'] if x['DEPTH'] != 0 else 0, axis=1)
+        write_file_to_datalake(f"Geo_Mech_Projects/Pangea/{project_val}/{well_val}.json", input_df)
+        return func.HttpResponse("Completed till OverBurden", status_code=201)
+
+    # return func.HttpResponse(f"Success", status_code=200)
+    
+    # # Pp_1=Sv-(Sv- V_Biot *0.43*Ovbn_Z)*Pow(Vp_M/Vp_NCT,3) 
+
+    # # PpG_1=Pp_1/Ovbn_Z 
+    # try:
+    #     input_df['Pp'] = input_df.apply(lambda x: x['Sv'] - ((x['Sv'] - (x['V_Biot'] * 0.43 * x['TVD'])) * ((x['VP'] / x['Vp_NCT']) ** 3)), axis=1)
+    #     input_df['PpG'] = input_df.apply(lambda x: x['Pp'] / x['TVD'], axis=1)
+    # except:
+    #     input_df['Pp'] = input_df.apply(lambda x: x['Sv'] - ((x['Sv'] - (x['V_Biot'] * 0.43 * x['DEPTH'])) * ((x['VP'] / x['Vp_NCT']) ** 3)), axis=1)
+    #     input_df['PpG'] = input_df.apply(lambda x: x['Pp'] / x['DEPTH'] if x['DEPTH'] != 0 else 0, axis=1)
 
     ##########################
     # Stress
@@ -400,8 +472,9 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         except:
             tectonic_val = 0
 
-        if req.form['UCS_check'] == None or req.form['UCS_check'][0] == "":
-            return func.HttpResponse(f"Completed till Pore Pressure properties", status_code=201)
+        if req.form['UCS_check'] == None or req.form['UCS_check'][0] == "" or req.form['tensile_check'] == None or req.form['tensile_check'][0] == "":
+            k = ("Not calculating UCS")
+            # return func.HttpResponse(f"Completed till Pore Pressure properties", status_code=201)
         else:
             input_df['UCS'] = input_df.apply(lambda x: (float(req.form['UCS_m_val']) * x[req.form['UCS_x_val']]) + float(req.form['UCS_c_val']), axis=1)
 
@@ -409,8 +482,12 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             return func.HttpResponse(f"Completed till Pore Pressure properties", status_code=201)
         else:
             input_df['Shmin'] = input_df.apply(lambda x: (x['Esh']/x['Esv']) * (x['PRsv'] / (1 - x['PRsh'])) * (x['Sv'] - (x['V_Biot'] * x['Pp'])) + (x['H_Biot'] * x['Pp']) + tectonic_val, axis=1)
-            input_df['Eff_Shmin'] = input_df.apply(lambda x: x['Shmin'] - (x['V_Biot'] * x['Pp']), axis=1)
         
+        if req.form['Eff_Shmin_check'] == None or req.form['Eff_Shmin_check'][0] == "":
+            k = ("Not calculating Eff Stress")
+        else:
+            input_df['Eff_Shmin'] = input_df.apply(lambda x: x['Shmin'] - (x['V_Biot'] * x['Pp']), axis=1)            
+
         if req.form['SHmax_check'] == None or req.form['SHmax_check'][0] == "":
             return func.HttpResponse(f"Completed till Pore Pressure properties", status_code=201)
         else:
@@ -420,8 +497,13 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 input_df['SHmax'] = input_df.apply(lambda x: (2 * x['Shmin']) - (x['V_Biot'] * x['Pp']), axis=1)
             
             
+        input_df['Anisotropy'] = input_df.apply(lambda x: x['Esh'] / x['Esv'], axis=1)
+
+        if req.form['SA_check'] == None or req.form['SA_check'][0] == "":
+            k = ("Not calculating Stress Anisotropy")
+        else:
+            input_df['Stress Anisotropy'] = input_df.apply(lambda x: x['SHmax'] / x['Shmin'], axis=1)
         
-        input_df['Anisotropy'] = input_df.apply(lambda x: x['Esv'] / x['Esh'], axis=1)
         
     except:
         write_file_to_datalake(f"Geo_Mech_Projects/Pangea/{project_val}/{well_val}.json", input_df)
