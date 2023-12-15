@@ -61,17 +61,19 @@ def dataprep(in_df, borehole_bool, min_vp_vs, max_vp_vs, caliper_bitsize):
     
     elif caliper_bitsize == None:
         in_df['vp_vs'] =  in_df.apply(lambda row: row['VP'] / row['VS'], axis=1)
-        in_df['vp_vs_bool'] =  in_df.apply(lambda row: True if row['vp_vs'] > min_vp_vs and row['vp_vs'] < max_vp_vs else False, axis=1)
+        in_df['vp_vs_bool'] =  in_df.apply(lambda row: False if row['vp_vs'] > min_vp_vs and row['vp_vs'] < max_vp_vs else True, axis=1)
         in_df['final_bool'] =  in_df.apply(lambda row: row['vp_vs_bool'], axis=1)
 
     elif min_vp_vs == None or max_vp_vs == None or min_vp_vs >= max_vp_vs:
-        in_df['caliper_bitsize_bool'] =  in_df.apply(lambda row: True if row['Caliper'] > ((1 - caliper_bitsize) * row['Bitsize']) and row['Caliper'] < ((1 + caliper_bitsize) * row['Bitsize']) else False, axis=1)
+        caliper_bitsize = caliper_bitsize / 100
+        in_df['caliper_bitsize_bool'] =  in_df.apply(lambda row: False if row['Caliper'] > ((1 - caliper_bitsize) * row['Bitsize']) and row['Caliper'] < ((1 + caliper_bitsize) * row['Bitsize']) else True, axis=1)
         in_df['final_bool'] =  in_df.apply(lambda row: row['caliper_bitsize_bool'], axis=1)
 
     else:
+        caliper_bitsize = caliper_bitsize / 100
         in_df['vp_vs'] =  in_df.apply(lambda row: row['VP'] / row['VS'], axis=1)
-        in_df['vp_vs_bool'] =  in_df.apply(lambda row: True if row['vp_vs'] > min_vp_vs and row['vp_vs'] < max_vp_vs else False, axis=1)
-        in_df['caliper_bitsize_bool'] =  in_df.apply(lambda row: True if row['Caliper'] > ((1 - caliper_bitsize) * row['Bitsize']) and row['Caliper'] < ((1 + caliper_bitsize) * row['Bitsize']) else False, axis=1)
+        in_df['vp_vs_bool'] =  in_df.apply(lambda row: False if row['vp_vs'] > min_vp_vs and row['vp_vs'] < max_vp_vs else True, axis=1)
+        in_df['caliper_bitsize_bool'] =  in_df.apply(lambda row: False if row['Caliper'] > ((1 - caliper_bitsize) * row['Bitsize']) and row['Caliper'] < ((1 + caliper_bitsize) * row['Bitsize']) else True, axis=1)
         
         if borehole_bool == True:
             in_df['final_bool'] =  in_df.apply(lambda row: row['vp_vs_bool'] or row['caliper_bitsize_bool'], axis=1)
@@ -82,8 +84,8 @@ def dataprep(in_df, borehole_bool, min_vp_vs, max_vp_vs, caliper_bitsize):
 
     # Vs from GR: 0.1771*(GR)^2 - 45.154*(GR)^1 + 9367.8-300
 
-    in_df['VP'] = in_df.apply(lambda row: ((0.3422 * (row['GR'] ** 2)) - (124.91 * row['GR']) + 22383) if row['final_bool'] == False else row['VP'], axis=1)
-    in_df['VS'] = in_df.apply(lambda row: ((0.1771 * (row['GR'] ** 2)) - (45.154 * row['GR']) + 9367.8 - 300) if row['final_bool'] == False else row['VS'], axis=1)
+    in_df['VP'] = in_df.apply(lambda row: ((0.3422 * (row['GR'] ** 2)) - (124.91 * row['GR']) + 22383) if row['final_bool'] == True else row['VP'], axis=1)
+    in_df['VS'] = in_df.apply(lambda row: ((0.1771 * (row['GR'] ** 2)) - (45.154 * row['GR']) + 9367.8 - 300) if row['final_bool'] == True else row['VS'], axis=1)
 
     in_df =  in_df.drop(columns=['vp_vs', 'caliper_bitsize', 'vp_vs_bool', 'caliper_bitsize_bool', 'final_bool'], errors='ignore')
     
