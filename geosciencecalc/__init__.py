@@ -202,7 +202,6 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
 
 
-
     #########################
     # Velocity Section
     ######################
@@ -316,11 +315,11 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         ######################################################################################################
         # Variable Inputs
         ######################################################################################################
-        input_df['Esv'] = input_df.apply(lambda x:(geo_config['Esv']['M'] * x['Edva']) - geo_config['Esv']['C'], axis=1)
-        input_df['Esh'] = input_df.apply(lambda x:(geo_config['Esh']['M'] * x['Edha']) - geo_config['Esh']['C'], axis=1)
+        input_df['Esv'] = input_df.apply(lambda x:(geo_config['Esv']['M'] * x['Edva']) + geo_config['Esv']['C'], axis=1)
+        input_df['Esh'] = input_df.apply(lambda x:(geo_config['Esh']['M'] * x['Edha']) + geo_config['Esh']['C'], axis=1)
 
         input_df['PRsv'] = input_df.apply(lambda x:(geo_config['PRsv']['M'] * x['PRdva']) + geo_config['PRsv']['C'], axis=1)
-        input_df['PRsh'] = input_df.apply(lambda x:(geo_config['PRsh']['M'] * x['PRdha']) - geo_config['PRsh']['C'], axis=1)
+        input_df['PRsh'] = input_df.apply(lambda x:(geo_config['PRsh']['M'] * x['PRdha']) + geo_config['PRsh']['C'], axis=1)
         ######################################################################################################
 
         input_df['Esv_GPa'] = input_df.apply(lambda x: x['Esv'] / 0.147, axis=1)
@@ -338,6 +337,9 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         input_df['V_Biot'] = input_df.apply(lambda x: 1 - ((x['As']) * ((((2 * x['C13']) + x['C33']) / (3 * (((((((x['Ad'] * ((x['VP'] * 12 * 2.54 * 12 * 2.54 * x['VP']) - (4 * x['VS'] * 12 * 2.54 * 12 * 2.54 * x['VS'] / 3)))) / 1000000) / 68900) * 6.894757) + (((((x['Ad'] * ((x['Vp_90'] * 12 * 2.54 * 12 * 2.54 * x['Vp_90']) - (4 * x['Vs_90'] * 12 * 2.54 * 12 * 2.54 * x['Vs_90'] / 3)))) / 1000000) / 68900) * 6.894757)) / 2))))), axis=1)
         input_df['H_Biot'] = input_df.apply(lambda x: 1 - (x['As'] * ((x['C11'] + x['C12'] + x['C13']) / (3 * (((((((x['Ad'] * ((x['VP'] * 12 * 2.54 * 12 * 2.54 * x['VP']) - (4 * x['VS'] * 12 * 2.54 * 12 * 2.54 * x['VS'] / 3)))) / 1000000) / 68900) * 6.894757) + (((((x['Ad'] * ((x['Vp_90'] * 12 * 2.54 * 12 * 2.54 * x['Vp_90']) - (4 * x['Vs_90'] * 12 * 2.54 * 12 * 2.54 * x['Vs_90'] / 3)))) / 1000000) / 68900) * 6.894757)) / 2)))), axis=1)
  
+
+    ## Removing Unwanted Columns
+    input_df = input_df.drop(columns=['Vp_45', 'Vp_90', 'Vs_90', 'Vp_45_GPa', 'Vp_45_Sq_GPa', 'S11', 'S33', 'S44', 'S66', 'S12', 'S13', 'Edva', 'Edha', 'PRdva', 'PRdha', 'Esv_GPa', 'Esh_GPa', 'C11', 'C12', 'C13','C33', 'Ad', 'As'], errors='ignore')
 
     ##########################
     # Overburden
@@ -370,6 +372,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     except:
         write_file_to_datalake(f"Geo_Mech_Projects/Pangea/{project_val}/{well_val}.json", input_df)
         return func.HttpResponse(f"Completed till velocity and static properties", status_code=201)
+    
     ##########################
     # Pore Pressure
     #########################
@@ -431,16 +434,6 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             except:
                 input_df['Pp'] = input_df.apply(lambda x: x['PpG'] * x['DEPTH'], axis=1)
 
-
-            # input_df['Vp_NCT'] = input_df.apply(lambda x: (float(pressure_config[x['Tops']]) * x['VP']) if x['Tops'] != '0' else None, axis=1)
-
-            # try:
-            #     input_df['Pp'] = input_df.apply(lambda x: x['Sv'] - ((x['Sv'] - (x['V_Biot'] * 0.43 * x['TVD'])) * ((x['VP'] / x['Vp_NCT']) ** 3)), axis=1)
-            #     input_df['PpG'] = input_df.apply(lambda x: x['Pp'] / x['TVD'], axis=1)
-            # except:
-            #     input_df['Pp'] = input_df.apply(lambda x: x['Sv'] - ((x['Sv'] - (x['V_Biot'] * 0.43 * x['DEPTH'])) * ((x['VP'] / x['Vp_NCT']) ** 3)), axis=1)
-            #     input_df['PpG'] = input_df.apply(lambda x: x['Pp'] / x['DEPTH'] if x['DEPTH'] != 0 else 0, axis=1)
-
         elif req.form['pressure_model'] == 'usmodel_pressure_bool':
             pressure_config = json.loads(req.form['pressure_data'])
 
@@ -479,35 +472,11 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         write_file_to_datalake(f"Geo_Mech_Projects/Pangea/{project_val}/{well_val}.json", input_df)
         return func.HttpResponse("Completed till OverBurden", status_code=201)
 
-    # return func.HttpResponse(f"Success", status_code=200)
-    
-    # # Pp_1=Sv-(Sv- V_Biot *0.43*Ovbn_Z)*Pow(Vp_M/Vp_NCT,3) 
-
-    # # PpG_1=Pp_1/Ovbn_Z 
-    # try:
-    #     input_df['Pp'] = input_df.apply(lambda x: x['Sv'] - ((x['Sv'] - (x['V_Biot'] * 0.43 * x['TVD'])) * ((x['VP'] / x['Vp_NCT']) ** 3)), axis=1)
-    #     input_df['PpG'] = input_df.apply(lambda x: x['Pp'] / x['TVD'], axis=1)
-    # except:
-    #     input_df['Pp'] = input_df.apply(lambda x: x['Sv'] - ((x['Sv'] - (x['V_Biot'] * 0.43 * x['DEPTH'])) * ((x['VP'] / x['Vp_NCT']) ** 3)), axis=1)
-    #     input_df['PpG'] = input_df.apply(lambda x: x['Pp'] / x['DEPTH'] if x['DEPTH'] != 0 else 0, axis=1)
+    input_df = input_df.drop(columns=['Vp_NCT', 'CC', 'EC'], errors='ignore')
 
     ##########################
     # Stress
     #########################
-    # post_obj['tectonic_val'] = tectonic_val
-    # post_obj['tensile_check'] = tensile_check
-    # post_obj['UCS_check'] = Ucs_check
-    # post_obj['UCS_m_val'] = Ucs_m_val
-    # post_obj['UCS_x_val'] = Ucs_x_val
-    # post_obj['UCS_c_val'] = Ucs_c_val
-    # post_obj['Shmin_check'] = Shmin_check
-    # post_obj['Shmin_val'] = Shmin_val
-    # post_obj['SHmax_check'] = SHmax_check
-    # post_obj['SA_check'] = Sa_check
-
-    # Shmin_1 = (Esh/Esv )*(PRsv /(1-PRsh))*(Sv-V_Biot*Pp_1)+(H_Biot*Pp_1) + Tectonic Stress 
-    # Eff_Shmin_1= (Shmin_1-(V_Biot *Pp_1)) 
-    # SHmax: 2*Shmin-(V.Biot*Pp)-(UCS/12)
     try:
         try:
             tectonic_val = float(req.form['tectonic_val'])
@@ -558,6 +527,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     write_file_to_datalake(f"Geo_Mech_Projects/Pangea/{project_val}/{well_val}.json", input_df)
     return func.HttpResponse(f"Success", status_code=200)
+
+    ## Removing Unwanted Columns
+    # curves = ['DEPTH *', 'VP *', 'VS *', 'GR *', 'RHOB *', 'NPHI', 'DPHZ', 'Bitsize', "Caliper", "TVD", "Esv", "Esh", "PRsv", "PRsh", "V_Biot", "H_Biot", "Pp", "PpG", "Shmin", "SHmax", "UCS"]
+
 
     # if not name:
     #     try:
