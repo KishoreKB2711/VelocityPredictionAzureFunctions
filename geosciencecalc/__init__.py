@@ -182,7 +182,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
 
     input_df = read_dataframe_from_datalake(blobname=f"Geo_Mech_Projects/{user}/{hashkey}/{project_val}/{well_val}.json")
-    input_config = read_dataframe_from_datalake(blobname=f"Geo_Mech_Projects_Config/{user}/{hashkey}/{project_val}/{well_val}.json")
+    # input_config = read_dataframe_from_datalake(blobname=f"Geo_Mech_Projects_Config/{user}/{hashkey}/{project_val}/{well_val}.json")
 
     try:
         if (req.form['bitsize_bool'] == None or req.form['bitsize_bool'][0] == "") and (req.form['bitsize_val'] != None and req.form['bitsize_val'] != ""):
@@ -314,68 +314,118 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     else:
         if req.form['model'] == 'pangea':
             geo_config = read_dataframe_from_datalake('Config_files/geo_config.json').to_dict()
+
+            ######################################################################################################
+            # Variable Inputs
+            ######################################################################################################
+            input_df['Vp_45'] = input_df.apply(lambda x: (geo_config['Vp45']['M']) * x['VP'] + geo_config['Vp45']['C'], axis=1)
+            input_df['Vp_90'] = input_df.apply(lambda x: (geo_config['Vp90']['M']) * x['VP'] + geo_config['Vp90']['C'], axis=1)
+            input_df['Vs_90'] = input_df.apply(lambda x: (geo_config['Vs90']['M']) * x['VS'] + geo_config['Vs90']['C'], axis=1)
+
+            ######################################################################################################
+
+            input_df['Vp_45_GPa'] = input_df.apply(lambda x: (((x['RHOB'] * x['Vp_45'] * x['Vp_45'] * 12 * 12 * 2.54 * 2.54) / 1000000) / 68900) * 6.894 , axis=1)
+            input_df['Vp_45_Sq_GPa'] = input_df.apply(lambda x: x['Vp_45_GPa'] * x['Vp_45_GPa'] , axis=1)
+
+            input_df['S11'] = input_df.apply(lambda x:(((x['RHOB'] * x['Vp_90'] * x['Vp_90'] * 12 * 12 * 2.54 * 2.54) / 1000000) / 68900) * 6.894, axis=1) 
+            input_df['S33'] = input_df.apply(lambda x:(((x['RHOB'] * x['VP'] * x['VP'] * 12 * 12 * 2.54 * 2.54) / 1000000) / 68900) * 6.894, axis=1) 
+            input_df['S44'] = input_df.apply(lambda x:(((x['RHOB'] * x['VS'] * x['VS'] * 12 * 12 * 2.54 * 2.54) / 1000000) / 68900) * 6.894, axis=1) 
+            input_df['S66'] = input_df.apply(lambda x:(((x['RHOB'] * x['Vs_90'] * x['Vs_90'] * 12 * 12 * 2.54 * 2.54) / 1000000) / 68900) * 6.894, axis=1) 
+            
+            input_df['S12'] = input_df.apply(lambda x: x['S11'] - (2 * x['S66']), axis=1) 
+            input_df['S13'] = input_df.apply(lambda x: -x['S44'] + math.sqrt((4 * x['Vp_45_Sq_GPa']) - ((2 * x['Vp_45_GPa'] ) * (x['S11'] + x['S33'] + (2 * x['S44'])))+((x['S11'] + x['S44'])*(x['S33'] + x['S44']))), axis=1)
+            
+            input_df['Edva'] = input_df.apply(lambda x:((x['S33'] - (2 * x['S13'] * x['S13']) / (x['S11'] + x['S12'])) * 145037.73773) / 1000000, axis=1)
+            input_df['Edha'] = input_df.apply(lambda x:((x['S11'] - x['S12']) * (x['S11'] * x['S33'] - (2 * x['S13'] * x['S13']) + (x['S12'] * x['S33']))/((x['S11'] * x['S33']) - (x['S13'] * x['S13'])) * 145037.73773) / 1000000, axis=1)
+
+            input_df['PRdva'] = input_df.apply(lambda x: x['S13'] / (x['S11'] + x['S12']), axis=1)
+            input_df['PRdha'] = input_df.apply(lambda x:(((x['S33'] * x['S12']) - (x['S13'] * x['S13'])) / ((x['S33'] * x['S11']) - (x['S13'] * x['S13']))), axis=1)
+
+            ######################################################################################################
+            # Variable Inputs
+            ######################################################################################################
+            input_df['Esv'] = input_df.apply(lambda x:(geo_config['Esv']['M'] * x['Edva']) + geo_config['Esv']['C'], axis=1)
+            input_df['Esh'] = input_df.apply(lambda x:(geo_config['Esh']['M'] * x['Edha']) + geo_config['Esh']['C'], axis=1)
+
+            input_df['PRsv'] = input_df.apply(lambda x:(geo_config['PRsv']['M'] * x['PRdva']) + geo_config['PRsv']['C'], axis=1)
+            input_df['PRsh'] = input_df.apply(lambda x:(geo_config['PRsh']['M'] * x['PRdha']) + geo_config['PRsh']['C'], axis=1)
+            ######################################################################################################
+
+            input_df['Esv_GPa'] = input_df.apply(lambda x: x['Esv'] / 0.147, axis=1)
+            input_df['Esh_GPa'] = input_df.apply(lambda x: x['Esh'] / 0.147, axis=1)
+
+            input_df['C11'] = input_df.apply(lambda x: (((1-((x['Esh_GPa'] / x['Esv_GPa']) * x['PRsv'] * x['PRsv']))/(x['Esv_GPa'] * x['Esh_GPa'] * (((1 + x['PRsh']) * (1 - x['PRsh'] - (2 * (x['Esh_GPa'] / x['Esv_GPa']) * x['PRsv'] * x['PRsv']))) / (x['Esv_GPa'] * x['Esh_GPa'] * x['Esh_GPa']))))), axis=1)
+            input_df['C12'] = input_df.apply(lambda x: (x['PRsh'] + ((x['Esh_GPa'] / x['Esv_GPa']) * x['PRsv'] * x['PRsv'])) / ((((1 + x['PRsh']) * (1 - x['PRsh'] - (2 * (x['Esh_GPa'] / x['Esv_GPa']) * x['PRsv'] * x['PRsv']))) / (x['Esv_GPa'] * x['Esh_GPa'] * x['Esh_GPa'])) * x['Esv_GPa'] * x['Esh_GPa']), axis=1)
+            input_df['C13'] = input_df.apply(lambda x: (x['PRsv'] * (1 + x['PRsh'])) / (x['Esv_GPa'] * x['Esh_GPa'] * (((1 + x['PRsh']) * (1 - x['PRsh'] - (2 * (x['Esh_GPa'] / x['Esv_GPa']) * x['PRsv'] * x['PRsv'])))/(x['Esv_GPa'] * x['Esh_GPa'] * x['Esh_GPa']))), axis=1)
+            input_df['C33'] = input_df.apply(lambda x: (1 - (x['PRsh'] * x['PRsh'])) / ((((1 + x['PRsh']) * (1 - x['PRsh'] - (2 * (x['Esh_GPa'] / x['Esv_GPa']) * x['PRsv'] * x['PRsv'])))/(x['Esv_GPa'] * x['Esh_GPa'] * x['Esh_GPa'])) * x['Esh_GPa'] * x['Esh_GPa']), axis=1)
+            
+
+            input_df['Ad'] = input_df.apply(lambda x: x['RHOB'] / (1 - (0.1 / 1)), axis=1)    
+            input_df['As'] = input_df.apply(lambda x: ((x['S44'] / x['S33']) + (x['S66'] / x['S11'])) / 2 if x[f'VP']>23000 else (1 / (1 - x['PRdva']))*((x['S44'] / x['S33']) + (x['S66'] / x['S11'])) / 2, axis=1)
+            
+        
         elif req.form['model'] == 'usone':
             geo_config = json.loads(req.form['config'])
 
-        ######################################################################################################
-        # Variable Inputs
-        ######################################################################################################
-        if geo_config['Vp45']['use_input_bool'] == 0:
-            input_df['Vp_45'] = input_df.apply(lambda x: (geo_config['Vp45']['M']) * x['VP'] + geo_config['Vp45']['C'], axis=1)
+            ######################################################################################################
+            # Variable Inputs
+            ######################################################################################################
+            if geo_config['Vp45']['use_input_bool'] == 0:
+                input_df['Vp_45'] = input_df.apply(lambda x: (geo_config['Vp45']['M']) * x['VP'] + geo_config['Vp45']['C'], axis=1)
 
-        if geo_config['Vp90']['use_input_bool'] == 0:
-            input_df['Vp_90'] = input_df.apply(lambda x: (geo_config['Vp90']['M']) * x['VP'] + geo_config['Vp90']['C'], axis=1)
+            if geo_config['Vp90']['use_input_bool'] == 0:
+                input_df['Vp_90'] = input_df.apply(lambda x: (geo_config['Vp90']['M']) * x['VP'] + geo_config['Vp90']['C'], axis=1)
 
-        if geo_config['Vs90']['use_input_bool'] == 0:
-            input_df['Vs_90'] = input_df.apply(lambda x: (geo_config['Vs90']['M']) * x['VS'] + geo_config['Vs90']['C'], axis=1)
+            if geo_config['Vs90']['use_input_bool'] == 0:
+                input_df['Vs_90'] = input_df.apply(lambda x: (geo_config['Vs90']['M']) * x['VS'] + geo_config['Vs90']['C'], axis=1)
 
-        ######################################################################################################
+            ######################################################################################################
 
-        input_df['Vp_45_GPa'] = input_df.apply(lambda x: (((x['RHOB'] * x['Vp_45'] * x['Vp_45'] * 12 * 12 * 2.54 * 2.54) / 1000000) / 68900) * 6.894 , axis=1)
-        input_df['Vp_45_Sq_GPa'] = input_df.apply(lambda x: x['Vp_45_GPa'] * x['Vp_45_GPa'] , axis=1)
+            input_df['Vp_45_GPa'] = input_df.apply(lambda x: (((x['RHOB'] * x['Vp_45'] * x['Vp_45'] * 12 * 12 * 2.54 * 2.54) / 1000000) / 68900) * 6.894 , axis=1)
+            input_df['Vp_45_Sq_GPa'] = input_df.apply(lambda x: x['Vp_45_GPa'] * x['Vp_45_GPa'] , axis=1)
 
-        input_df['S11'] = input_df.apply(lambda x:(((x['RHOB'] * x['Vp_90'] * x['Vp_90'] * 12 * 12 * 2.54 * 2.54) / 1000000) / 68900) * 6.894, axis=1) 
-        input_df['S33'] = input_df.apply(lambda x:(((x['RHOB'] * x['VP'] * x['VP'] * 12 * 12 * 2.54 * 2.54) / 1000000) / 68900) * 6.894, axis=1) 
-        input_df['S44'] = input_df.apply(lambda x:(((x['RHOB'] * x['VS'] * x['VS'] * 12 * 12 * 2.54 * 2.54) / 1000000) / 68900) * 6.894, axis=1) 
-        input_df['S66'] = input_df.apply(lambda x:(((x['RHOB'] * x['Vs_90'] * x['Vs_90'] * 12 * 12 * 2.54 * 2.54) / 1000000) / 68900) * 6.894, axis=1) 
-        
-        input_df['S12'] = input_df.apply(lambda x: x['S11'] - (2 * x['S66']), axis=1) 
-        input_df['S13'] = input_df.apply(lambda x: -x['S44'] + math.sqrt((4 * x['Vp_45_Sq_GPa']) - ((2 * x['Vp_45_GPa'] ) * (x['S11'] + x['S33'] + (2 * x['S44'])))+((x['S11'] + x['S44'])*(x['S33'] + x['S44']))), axis=1)
-        
-        input_df['Edva'] = input_df.apply(lambda x:((x['S33'] - (2 * x['S13'] * x['S13']) / (x['S11'] + x['S12'])) * 145037.73773) / 1000000, axis=1)
-        input_df['Edha'] = input_df.apply(lambda x:((x['S11'] - x['S12']) * (x['S11'] * x['S33'] - (2 * x['S13'] * x['S13']) + (x['S12'] * x['S33']))/((x['S11'] * x['S33']) - (x['S13'] * x['S13'])) * 145037.73773) / 1000000, axis=1)
+            input_df['S11'] = input_df.apply(lambda x:(((x['RHOB'] * x['Vp_90'] * x['Vp_90'] * 12 * 12 * 2.54 * 2.54) / 1000000) / 68900) * 6.894, axis=1) 
+            input_df['S33'] = input_df.apply(lambda x:(((x['RHOB'] * x['VP'] * x['VP'] * 12 * 12 * 2.54 * 2.54) / 1000000) / 68900) * 6.894, axis=1) 
+            input_df['S44'] = input_df.apply(lambda x:(((x['RHOB'] * x['VS'] * x['VS'] * 12 * 12 * 2.54 * 2.54) / 1000000) / 68900) * 6.894, axis=1) 
+            input_df['S66'] = input_df.apply(lambda x:(((x['RHOB'] * x['Vs_90'] * x['Vs_90'] * 12 * 12 * 2.54 * 2.54) / 1000000) / 68900) * 6.894, axis=1) 
+            
+            input_df['S12'] = input_df.apply(lambda x: x['S11'] - (2 * x['S66']), axis=1) 
+            input_df['S13'] = input_df.apply(lambda x: -x['S44'] + math.sqrt((4 * x['Vp_45_Sq_GPa']) - ((2 * x['Vp_45_GPa'] ) * (x['S11'] + x['S33'] + (2 * x['S44'])))+((x['S11'] + x['S44'])*(x['S33'] + x['S44']))), axis=1)
+            
+            input_df['Edva'] = input_df.apply(lambda x:((x['S33'] - (2 * x['S13'] * x['S13']) / (x['S11'] + x['S12'])) * 145037.73773) / 1000000, axis=1)
+            input_df['Edha'] = input_df.apply(lambda x:((x['S11'] - x['S12']) * (x['S11'] * x['S33'] - (2 * x['S13'] * x['S13']) + (x['S12'] * x['S33']))/((x['S11'] * x['S33']) - (x['S13'] * x['S13'])) * 145037.73773) / 1000000, axis=1)
 
-        input_df['PRdva'] = input_df.apply(lambda x: x['S13'] / (x['S11'] + x['S12']), axis=1)
-        input_df['PRdha'] = input_df.apply(lambda x:(((x['S33'] * x['S12']) - (x['S13'] * x['S13'])) / ((x['S33'] * x['S11']) - (x['S13'] * x['S13']))), axis=1)
+            input_df['PRdva'] = input_df.apply(lambda x: x['S13'] / (x['S11'] + x['S12']), axis=1)
+            input_df['PRdha'] = input_df.apply(lambda x:(((x['S33'] * x['S12']) - (x['S13'] * x['S13'])) / ((x['S33'] * x['S11']) - (x['S13'] * x['S13']))), axis=1)
 
-        ######################################################################################################
-        # Variable Inputs
-        ######################################################################################################
-        if geo_config['Esv']['use_input_bool'] == 0:
-            input_df['Esv'] = input_df.apply(lambda x:(geo_config['Esv']['M'] * x['Edva']) + geo_config['Esv']['C'], axis=1)
+            ######################################################################################################
+            # Variable Inputs
+            ######################################################################################################
+            if geo_config['Esv']['use_input_bool'] == 0:
+                input_df['Esv'] = input_df.apply(lambda x:(geo_config['Esv']['M'] * x['Edva']) + geo_config['Esv']['C'], axis=1)
 
-        if geo_config['Esh']['use_input_bool'] == 0:
-            input_df['Esh'] = input_df.apply(lambda x:(geo_config['Esh']['M'] * x['Edha']) + geo_config['Esh']['C'], axis=1)
+            if geo_config['Esh']['use_input_bool'] == 0:
+                input_df['Esh'] = input_df.apply(lambda x:(geo_config['Esh']['M'] * x['Edha']) + geo_config['Esh']['C'], axis=1)
 
-        if geo_config['PRsv']['use_input_bool'] == 0:
-            input_df['PRsv'] = input_df.apply(lambda x:(geo_config['PRsv']['M'] * x['PRdva']) + geo_config['PRsv']['C'], axis=1)
+            if geo_config['PRsv']['use_input_bool'] == 0:
+                input_df['PRsv'] = input_df.apply(lambda x:(geo_config['PRsv']['M'] * x['PRdva']) + geo_config['PRsv']['C'], axis=1)
 
-        if geo_config['PRsh']['use_input_bool'] == 0:
-            input_df['PRsh'] = input_df.apply(lambda x:(geo_config['PRsh']['M'] * x['PRdha']) + geo_config['PRsh']['C'], axis=1)
-        ######################################################################################################
+            if geo_config['PRsh']['use_input_bool'] == 0:
+                input_df['PRsh'] = input_df.apply(lambda x:(geo_config['PRsh']['M'] * x['PRdha']) + geo_config['PRsh']['C'], axis=1)
+            ######################################################################################################
 
-        input_df['Esv_GPa'] = input_df.apply(lambda x: x['Esv'] / 0.147, axis=1)
-        input_df['Esh_GPa'] = input_df.apply(lambda x: x['Esh'] / 0.147, axis=1)
+            input_df['Esv_GPa'] = input_df.apply(lambda x: x['Esv'] / 0.147, axis=1)
+            input_df['Esh_GPa'] = input_df.apply(lambda x: x['Esh'] / 0.147, axis=1)
 
-        input_df['C11'] = input_df.apply(lambda x: (((1-((x['Esh_GPa'] / x['Esv_GPa']) * x['PRsv'] * x['PRsv']))/(x['Esv_GPa'] * x['Esh_GPa'] * (((1 + x['PRsh']) * (1 - x['PRsh'] - (2 * (x['Esh_GPa'] / x['Esv_GPa']) * x['PRsv'] * x['PRsv']))) / (x['Esv_GPa'] * x['Esh_GPa'] * x['Esh_GPa']))))), axis=1)
-        input_df['C12'] = input_df.apply(lambda x: (x['PRsh'] + ((x['Esh_GPa'] / x['Esv_GPa']) * x['PRsv'] * x['PRsv'])) / ((((1 + x['PRsh']) * (1 - x['PRsh'] - (2 * (x['Esh_GPa'] / x['Esv_GPa']) * x['PRsv'] * x['PRsv']))) / (x['Esv_GPa'] * x['Esh_GPa'] * x['Esh_GPa'])) * x['Esv_GPa'] * x['Esh_GPa']), axis=1)
-        input_df['C13'] = input_df.apply(lambda x: (x['PRsv'] * (1 + x['PRsh'])) / (x['Esv_GPa'] * x['Esh_GPa'] * (((1 + x['PRsh']) * (1 - x['PRsh'] - (2 * (x['Esh_GPa'] / x['Esv_GPa']) * x['PRsv'] * x['PRsv'])))/(x['Esv_GPa'] * x['Esh_GPa'] * x['Esh_GPa']))), axis=1)
-        input_df['C33'] = input_df.apply(lambda x: (1 - (x['PRsh'] * x['PRsh'])) / ((((1 + x['PRsh']) * (1 - x['PRsh'] - (2 * (x['Esh_GPa'] / x['Esv_GPa']) * x['PRsv'] * x['PRsv'])))/(x['Esv_GPa'] * x['Esh_GPa'] * x['Esh_GPa'])) * x['Esh_GPa'] * x['Esh_GPa']), axis=1)
-        
+            input_df['C11'] = input_df.apply(lambda x: (((1-((x['Esh_GPa'] / x['Esv_GPa']) * x['PRsv'] * x['PRsv']))/(x['Esv_GPa'] * x['Esh_GPa'] * (((1 + x['PRsh']) * (1 - x['PRsh'] - (2 * (x['Esh_GPa'] / x['Esv_GPa']) * x['PRsv'] * x['PRsv']))) / (x['Esv_GPa'] * x['Esh_GPa'] * x['Esh_GPa']))))), axis=1)
+            input_df['C12'] = input_df.apply(lambda x: (x['PRsh'] + ((x['Esh_GPa'] / x['Esv_GPa']) * x['PRsv'] * x['PRsv'])) / ((((1 + x['PRsh']) * (1 - x['PRsh'] - (2 * (x['Esh_GPa'] / x['Esv_GPa']) * x['PRsv'] * x['PRsv']))) / (x['Esv_GPa'] * x['Esh_GPa'] * x['Esh_GPa'])) * x['Esv_GPa'] * x['Esh_GPa']), axis=1)
+            input_df['C13'] = input_df.apply(lambda x: (x['PRsv'] * (1 + x['PRsh'])) / (x['Esv_GPa'] * x['Esh_GPa'] * (((1 + x['PRsh']) * (1 - x['PRsh'] - (2 * (x['Esh_GPa'] / x['Esv_GPa']) * x['PRsv'] * x['PRsv'])))/(x['Esv_GPa'] * x['Esh_GPa'] * x['Esh_GPa']))), axis=1)
+            input_df['C33'] = input_df.apply(lambda x: (1 - (x['PRsh'] * x['PRsh'])) / ((((1 + x['PRsh']) * (1 - x['PRsh'] - (2 * (x['Esh_GPa'] / x['Esv_GPa']) * x['PRsv'] * x['PRsv'])))/(x['Esv_GPa'] * x['Esh_GPa'] * x['Esh_GPa'])) * x['Esh_GPa'] * x['Esh_GPa']), axis=1)
+            
 
-        input_df['Ad'] = input_df.apply(lambda x: x['RHOB'] / (1 - (0.1 / 1)), axis=1)    
-        input_df['As'] = input_df.apply(lambda x: ((x['S44'] / x['S33']) + (x['S66'] / x['S11'])) / 2 if x[f'VP']>23000 else (1 / (1 - x['PRdva']))*((x['S44'] / x['S33']) + (x['S66'] / x['S11'])) / 2, axis=1)
-        
+            input_df['Ad'] = input_df.apply(lambda x: x['RHOB'] / (1 - (0.1 / 1)), axis=1)    
+            input_df['As'] = input_df.apply(lambda x: ((x['S44'] / x['S33']) + (x['S66'] / x['S11'])) / 2 if x[f'VP']>23000 else (1 / (1 - x['PRdva']))*((x['S44'] / x['S33']) + (x['S66'] / x['S11'])) / 2, axis=1)
+            
         
         ###########
         # Biot
@@ -605,15 +655,15 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         else:
             input_df['Stress Anisotropy'] = input_df.apply(lambda x: x['SHmax'] / x['Shmin'], axis=1)
 
-        if req.form['facies_individual_check'] == None or req.form['facies_individual_check'][0] == "":
-            k = ("Not calculating GM Facies Individual")
-        else:
-            input_df['GM Facies Individual'] = input_df.apply(lambda x: x['SHmax'] / x['Shmin'], axis=1)
+        # if req.form['facies_individual_check'] == None or req.form['facies_individual_check'][0] == "":
+        #     k = ("Not calculating GM Facies Individual")
+        # else:
+        #     input_df['GM Facies Individual'] = input_df.apply(lambda x: x['SHmax'] / x['Shmin'], axis=1)
 
-        if req.form['facies_combined_check'] == None or req.form['facies_combined_check'][0] == "":
-            k = ("Not calculating GM Facies combined")
-        else:
-            input_df['GM Facies Combined'] = input_df.apply(lambda x: x['SHmax'] / x['Shmin'], axis=1)
+        # if req.form['facies_combined_check'] == None or req.form['facies_combined_check'][0] == "":
+        #     k = ("Not calculating GM Facies combined")
+        # else:
+        #     input_df['GM Facies Combined'] = input_df.apply(lambda x: x['SHmax'] / x['Shmin'], axis=1)
         
         
     except:
