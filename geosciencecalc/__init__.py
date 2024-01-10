@@ -137,15 +137,27 @@ def CalculateRamp(val1, val2, depth1, depth2, depth):
     
     return val1 + ((val2 - val1) * (depth1-depth) / (depth1 - depth2))
  
-# #########################################
-# # Assign Individual Facies
-# #######################################
-# def assign_ind_facies(vp, facies_config):
-# #########################################
-# # Assign Combined Facies
-# #######################################
-# def assign_comb_facies(vp, facies_config):
+#########################################
+# Assign Individual Facies
+#######################################
+def assign_ind_facies(vp, facies_config):
+    for key in facies_config:
+        if key == "default":
+            return facies_config[key]
+        
+        elif vp >= facies_config[key][0] and vp < facies_config[key][1]:
+            return int(key)
 
+#########################################
+# Assign Combined Facies
+#######################################
+def assign_comb_facies(ind_fac, facies_config):
+    for key in facies_config:
+        if key == "default":
+            return facies_config[key]
+        
+        elif ind_fac in facies_config[key]:
+            return int(key)
 
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
@@ -182,7 +194,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
 
     input_df = read_dataframe_from_datalake(blobname=f"Geo_Mech_Projects/{user}/{hashkey}/{project_val}/{well_val}.json")
-    # input_config = read_dataframe_from_datalake(blobname=f"Geo_Mech_Projects_Config/{user}/{hashkey}/{project_val}/{well_val}.json")
+    input_config = read_dataframe_from_datalake(blobname=f"Geo_Mech_Projects_Config/{user}/{hashkey}/{project_val}/{well_val}.json", flag=False)
+
+    facies_ind_config = read_dataframe_from_datalake(blobname="Config_files/facies_individual_config.json", flag=False)
+    facies_com_config = read_dataframe_from_datalake(blobname="Config_files/facies_combined_config.json", flag=False)
 
     try:
         if (req.form['bitsize_bool'] == None or req.form['bitsize_bool'][0] == "") and (req.form['bitsize_val'] != None and req.form['bitsize_val'] != ""):
@@ -444,11 +459,10 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         
         # input_df['V_Biot'] = input_df.apply(lambda x: 1 - ((x['As']) * ((((2 * x['C13']) + x['C33']) / (3 * (((((((x['Ad'] * ((x['VP'] * 12 * 2.54 * 12 * 2.54 * x['VP']) - (4 * x['VS'] * 12 * 2.54 * 12 * 2.54 * x['VS'] / 3)))) / 1000000) / 68900) * 6.894757) + (((((x['Ad'] * ((x['Vp_90'] * 12 * 2.54 * 12 * 2.54 * x['Vp_90']) - (4 * x['Vs_90'] * 12 * 2.54 * 12 * 2.54 * x['Vs_90'] / 3)))) / 1000000) / 68900) * 6.894757)) / 2))))), axis=1)
         # input_df['H_Biot'] = input_df.apply(lambda x: 1 - (x['As'] * ((x['C11'] + x['C12'] + x['C13']) / (3 * (((((((x['Ad'] * ((x['VP'] * 12 * 2.54 * 12 * 2.54 * x['VP']) - (4 * x['VS'] * 12 * 2.54 * 12 * 2.54 * x['VS'] / 3)))) / 1000000) / 68900) * 6.894757) + (((((x['Ad'] * ((x['Vp_90'] * 12 * 2.54 * 12 * 2.54 * x['Vp_90']) - (4 * x['Vs_90'] * 12 * 2.54 * 12 * 2.54 * x['Vs_90'] / 3)))) / 1000000) / 68900) * 6.894757)) / 2)))), axis=1)
- 
+    
 
-    ## Removing Unwanted Columns
-    input_df = input_df.drop(columns=['Vp_45', 'Vp_90', 'Vs_90', 'Vp_45_GPa', 'Vp_45_Sq_GPa', 'S11', 'S33', 'S44', 'S66', 'S12', 'S13', 'Edva', 'Edha', 'PRdva', 'PRdha', 'Esv_GPa', 'Esh_GPa', 'C11', 'C12', 'C13','C33', 'Ad', 'As'], errors='ignore')
 
+    
     ##########################
     # Overburden
     #########################
@@ -655,15 +669,15 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         else:
             input_df['Stress Anisotropy'] = input_df.apply(lambda x: x['SHmax'] / x['Shmin'], axis=1)
 
-        # if req.form['facies_individual_check'] == None or req.form['facies_individual_check'][0] == "":
-        #     k = ("Not calculating GM Facies Individual")
-        # else:
-        #     input_df['GM Facies Individual'] = input_df.apply(lambda x: x['SHmax'] / x['Shmin'], axis=1)
+        if req.form['facies_individual_check'] == None or req.form['facies_individual_check'][0] == "":
+            k = ("Not calculating GM Facies Individual")
+        else:
+            input_df['GM Facies Individual'] = input_df.apply(lambda x: assign_ind_facies(x['VP'], facies_ind_config[input_config['Basin']]), axis=1)
 
-        # if req.form['facies_combined_check'] == None or req.form['facies_combined_check'][0] == "":
-        #     k = ("Not calculating GM Facies combined")
-        # else:
-        #     input_df['GM Facies Combined'] = input_df.apply(lambda x: x['SHmax'] / x['Shmin'], axis=1)
+        if req.form['facies_combined_check'] == None or req.form['facies_combined_check'][0] == "":
+            k = ("Not calculating GM Facies combined")
+        else:
+            input_df['GM Facies Combined'] = input_df.apply(lambda x: assign_comb_facies(x['GM Facies Individual'], facies_com_config[input_config['Basin']]), axis=1)
         
         
     except:
@@ -671,8 +685,12 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse("Completed till Pore Pressure properties", status_code=201)
 
 
+    ## Writing file to injection/depletion module
+    write_file_to_datalake(f"Geo_Mech_Injection_Depletion/{user}/{hashkey}/{project_val}/{well_val}.json", input_df[['VP', 'VS', 'Vp_45', 'Vp_90', 'Vs_90', 'Esv', 'Esh', 'PRsv', 'PRsh', 'V_Biot', 'H_Biot', 'UCS']])
 
 
+    ## Removing Unwanted Columns
+    input_df = input_df.drop(columns=['Vp_45', 'Vp_90', 'Vs_90', 'Vp_45_GPa', 'Vp_45_Sq_GPa', 'S11', 'S33', 'S44', 'S66', 'S12', 'S13', 'Edva', 'Edha', 'PRdva', 'PRdha', 'Esv_GPa', 'Esh_GPa', 'C11', 'C12', 'C13','C33', 'Ad', 'As'], errors='ignore')
 
 
     write_file_to_datalake(f"Geo_Mech_Projects/{user}/{hashkey}/{project_val}/{well_val}.json", input_df)
