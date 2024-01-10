@@ -34,7 +34,7 @@ def main(event: func.EventGridEvent):
         'event_type': event.event_type,
     })
     user = event.get_json()['user']
-    hashKey = event.get_json['hashKey']
+    hashKey = event.get_json()['hashKey']
 
     logging.info('Python EventGrid trigger processed an event new: %s', result)
     
