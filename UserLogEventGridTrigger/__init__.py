@@ -25,7 +25,7 @@ def checkBlobandUpload(blobname, event, time):
             blob_client_instance.upload_blob(updated_log_file, overwrite=True)
             logging.info(f"this is updated conent {updated_log_file}")
         except ResourceExistsError:
-            logging.info("Resource exists (concurrence issue) and need to retry")
+            logging.error("Resource exists (concurrence issue) and need to retry")
     else:
         log_data = {time:{'user':event.get_json()['user'],'hashKey':event.get_json()['hashKey'],'message':event.get_json()['message']}}
         blob_client_instance.upload_blob(data=json.dumps(log_data),  overwrite=True)
