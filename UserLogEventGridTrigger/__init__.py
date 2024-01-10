@@ -13,7 +13,7 @@ def checkBlobandUpload(blobname, event):
     blob_service_client_instance = BlobServiceClient(account_url=STORAGEACCOUNTURL, credential=STORAGEACCOUNTKEY)
     blob_client_instance = blob_service_client_instance.get_blob_client(CONTAINERNAME, BLOBNAME, snapshot=None)
     if blob_client_instance.exists():
-        current_log_file = json.loads(blob_client_instance.download_blob())
+        current_log_file = json.loads(blob_client_instance.download_blob().readall())
         logging.info(f"this is current file from blob {current_log_file}")
         current_log_file.update(event.get_json())
         updated_log_file = json.dumps(current_log_file)
@@ -40,6 +40,6 @@ def main(event: func.EventGridEvent):
     
     if (user and hashKey):
         logging.info("user and hash key persent")
-        checkBlobandUpload(f"Log/{user}/{hashKey}", event)
+        checkBlobandUpload(f"Log/{user}/{hashKey}/log.json", event)
     else:
         logging.info("hashKey not present")
